@@ -1,0 +1,39 @@
+# Environment variables and secrets
+.env
+.env.local
+storage/memory.json
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+*.bak
+*.backup
+*.before-*
+*backup*
+
+# Logs & temporary run files
+logs/*.log
+*.log
+
+# Storage runtime artifacts (preserve directory with .gitkeep)
+storage/notes/*.md
+!storage/notes/.gitkeep
+storage/test_*.json
+tests/test_storage/*.json
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+

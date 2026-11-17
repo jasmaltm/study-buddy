@@ -1,0 +1,10 @@
+# =========================================================================
+# AI Study Buddy Agent Dependencies
+# =========================================================================
+# NOTE: The core 7-pillar agent architecture is designed to run with ZERO
+# external dependencies using Python 3.8+ standard library.
+#
+# Optional packages for live cloud LLM integrations:
+google-genai>=0.1.1
+openai>=1.0.0
+

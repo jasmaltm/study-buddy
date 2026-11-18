@@ -7,16 +7,14 @@ Install dependencies and start the web server:
 ```powershell
 python -m pip install -r requirements.txt
 $env:USE_FAKE_LLM = "false"
-$env:REAL_LLM_PROVIDER = "ollama"
+$env:REAL_LLM_PROVIDER = "gemini"
 .\start_ui.ps1
 ```
 
-Make sure Ollama is running and has the configured model installed. By default,
-the app connects to `http://localhost:11434` using `llama3.2:3b`. Set
-`OLLAMA_BASE_URL` and `OLLAMA_MODEL` to use different values. The launcher
-starts the API server and opens `http://127.0.0.1:8000`. For Gemini, set
-`$env:REAL_LLM_PROVIDER = "gemini"`; the launcher will prompt for a key. For
-offline demo mode, set `$env:USE_FAKE_LLM = "true"` instead.
+The launcher prompts for a Gemini API key if `GEMINI_API_KEY` is not set. It
+starts the API server and opens `http://127.0.0.1:8000`. To use Ollama instead,
+set `$env:REAL_LLM_PROVIDER = "ollama"` and configure `OLLAMA_BASE_URL` and
+`OLLAMA_MODEL`. For offline demo mode, set `$env:USE_FAKE_LLM = "true"`.
 
 ## Deploy on Render
 

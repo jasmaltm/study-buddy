@@ -17,7 +17,7 @@ $serverUrl = "http://127.0.0.1:$port"
 $healthUrl = "$serverUrl/api/health"
 $provider = $env:REAL_LLM_PROVIDER
 if ([string]::IsNullOrWhiteSpace($provider)) {
-    $provider = "ollama"
+    $provider = "gemini"
 }
 $provider = $provider.Trim().ToLowerInvariant()
 $useFake = "$env:USE_FAKE_LLM".Trim().ToLowerInvariant() -eq "true"

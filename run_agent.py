@@ -27,8 +27,12 @@ def get_llm():
         return FakeLLM()
     
     if config.REAL_LLM_PROVIDER == "ollama":
-        print("[LLM Engine] Using Local LLM: Ollama / Llama.")
-        return OllamaLLM(model="llama3.2:3b")
+        print("[LLM Engine] Using Ollama.")
+        return OllamaLLM(
+            model=config.OLLAMA_MODEL,
+            base_url=config.OLLAMA_BASE_URL,
+            api_key=config.OLLAMA_API_KEY,
+        )
     elif config.REAL_LLM_PROVIDER == "gemini":
         print("[LLM Engine] Using RealLLM: Google Gemini.")
         return GeminiLLM(api_key=config.GEMINI_API_KEY)

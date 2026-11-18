@@ -4,7 +4,7 @@ import unittest
 from io import BytesIO
 from unittest.mock import patch
 
-from agent.llm.real_llm import GeminiLLM
+from agent.llm.real_llm import GeminiLLM, OllamaLLM
 
 
 class TestGeminiLLM(unittest.TestCase):
@@ -109,6 +109,29 @@ class TestGeminiLLM(unittest.TestCase):
 
         self.assertEqual(answer, "Final Answer: Available.")
         self.assertEqual(urlopen.call_count, 2)
+
+
+class TestOllamaLLM(unittest.TestCase):
+    def test_sends_configured_remote_url_and_bearer_token(self):
+        response_body = json.dumps({"response": "Ollama response"}).encode("utf-8")
+
+        with patch(
+            "agent.llm.real_llm.urllib.request.urlopen",
+            return_value=BytesIO(response_body),
+        ) as urlopen:
+            answer = OllamaLLM(
+                model="llama3.2:3b",
+                base_url="https://ollama.example.com/",
+                api_key="test-token",
+            ).generate("test prompt")
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(answer, "Ollama response")
+        self.assertEqual(
+            request.full_url,
+            "https://ollama.example.com/api/generate",
+        )
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
 
 
 if __name__ == "__main__":

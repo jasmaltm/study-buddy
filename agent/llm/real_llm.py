@@ -153,10 +153,15 @@ class OllamaLLM(BaseLLM):
     No API key or cloud connection required.
     """
 
-    def __init__(self, model: str = "llama3.2:3b",
-                 base_url: str = "http://localhost:11434"):
+    def __init__(
+        self,
+        model: str = "llama3.2:3b",
+        base_url: str = "http://localhost:11434",
+        api_key: Optional[str] = None,
+    ):
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.api_key = api_key or os.environ.get("OLLAMA_API_KEY", "")
 
     def generate(self, prompt: str) -> str:
         url = f"{self.base_url}/api/generate"
@@ -170,10 +175,13 @@ class OllamaLLM(BaseLLM):
             }
         }
 
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"}
+            headers=headers
         )
 
         try:

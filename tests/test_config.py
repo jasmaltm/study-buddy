@@ -7,6 +7,7 @@ import unittest
 class TestConfigurationEnvironment(unittest.TestCase):
     def run_config(self, **environment):
         env = os.environ.copy()
+        env.pop("PORT", None)
         env.update(environment)
         return subprocess.run(
             [
@@ -55,6 +56,39 @@ class TestConfigurationEnvironment(unittest.TestCase):
         result = self.run_config(REAL_LLM_PROVIDER="unknown")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("REAL_LLM_PROVIDER must be", result.stderr)
+
+    def test_rejects_loopback_ollama_url_on_hosted_service(self):
+        result = self.run_config(
+            REAL_LLM_PROVIDER="ollama",
+            PORT="10000",
+            OLLAMA_BASE_URL="http://127.0.0.1:8000",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Render cannot reach Ollama at localhost", result.stderr)
+
+    def test_accepts_secure_remote_ollama_settings(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import config; print(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)",
+            ],
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "PORT": "10000",
+                "REAL_LLM_PROVIDER": "ollama",
+                "OLLAMA_BASE_URL": "https://ollama.example.com/",
+                "OLLAMA_MODEL": "llama3.2:3b",
+            },
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            "https://ollama.example.com llama3.2:3b",
+        )
 
 
 if __name__ == "__main__":

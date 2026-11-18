@@ -43,48 +43,60 @@ class GeminiLLM(BaseLLM):
         }
 
         try:
-            for attempt in range(2):
+            for attempt in range(3):
                 req = urllib.request.Request(
                     url,
                     data=json.dumps(payload).encode("utf-8"),
                     headers={"Content-Type": "application/json"}
                 )
-                with urllib.request.urlopen(req, timeout=90) as response:
-                    result = json.loads(response.read().decode("utf-8"))
-                    candidates = result.get("candidates", [])
-                    if not candidates:
-                        block_reason = (result.get("promptFeedback") or {}).get("blockReason")
-                        reason = f" (prompt blocked: {block_reason})" if block_reason else ""
-                        raise RuntimeError(f"Gemini returned no response candidate{reason}.")
-
-                    candidate = candidates[0]
-                    parts = (candidate.get("content") or {}).get("parts", [])
-                    text = "\n".join(
-                        part["text"]
-                        for part in parts
-                        if isinstance(part.get("text"), str)
-                    ).strip()
-                    if text:
-                        return text
-
-                    finish_reason = candidate.get("finishReason")
-                    if finish_reason == "MALFORMED_RESPONSE" and attempt == 0:
-                        time.sleep(0.5)
+                try:
+                    with urllib.request.urlopen(req, timeout=90) as response:
+                        result = json.loads(response.read().decode("utf-8"))
+                except urllib.error.HTTPError as e:
+                    error_body = e.read().decode("utf-8")
+                    if e.code in {429, 500, 502, 503, 504} and attempt < 2:
+                        time.sleep(2 ** attempt)
                         continue
+                    retry_detail = (
+                        f" after {attempt + 1} attempts"
+                        if e.code in {429, 500, 502, 503, 504}
+                        else ""
+                    )
+                    raise RuntimeError(
+                        f"Gemini API HTTP Error {e.code}{retry_detail}: {error_body}"
+                    )
 
-                    reason_details = []
-                    if finish_reason:
-                        reason_details.append(f"finish reason: {finish_reason}")
-                    finish_message = candidate.get("finishMessage")
-                    if isinstance(finish_message, str) and finish_message.strip():
-                        reason_details.append(f"details: {finish_message.strip()}")
-                    if finish_reason == "MALFORMED_RESPONSE":
-                        reason_details.append("after 2 attempts")
-                    reason = f" ({'; '.join(reason_details)})" if reason_details else ""
-                    raise RuntimeError(f"Gemini returned a candidate without text{reason}.")
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode("utf-8")
-            raise RuntimeError(f"Gemini API HTTP Error {e.code}: {error_body}")
+                candidates = result.get("candidates", [])
+                if not candidates:
+                    block_reason = (result.get("promptFeedback") or {}).get("blockReason")
+                    reason = f" (prompt blocked: {block_reason})" if block_reason else ""
+                    raise RuntimeError(f"Gemini returned no response candidate{reason}.")
+
+                candidate = candidates[0]
+                parts = (candidate.get("content") or {}).get("parts", [])
+                text = "\n".join(
+                    part["text"]
+                    for part in parts
+                    if isinstance(part.get("text"), str)
+                ).strip()
+                if text:
+                    return text
+
+                finish_reason = candidate.get("finishReason")
+                if finish_reason == "MALFORMED_RESPONSE" and attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+
+                reason_details = []
+                if finish_reason:
+                    reason_details.append(f"finish reason: {finish_reason}")
+                finish_message = candidate.get("finishMessage")
+                if isinstance(finish_message, str) and finish_message.strip():
+                    reason_details.append(f"details: {finish_message.strip()}")
+                if finish_reason == "MALFORMED_RESPONSE":
+                    reason_details.append(f"after {attempt + 1} attempts")
+                reason = f" ({'; '.join(reason_details)})" if reason_details else ""
+                raise RuntimeError(f"Gemini returned a candidate without text{reason}.")
         except RuntimeError:
             raise
         except Exception as e:

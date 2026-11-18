@@ -1,4 +1,5 @@
 import json
+import urllib.error
 import unittest
 from io import BytesIO
 from unittest.mock import patch
@@ -51,13 +52,17 @@ class TestGeminiLLM(unittest.TestCase):
 
         with patch(
             "agent.llm.real_llm.urllib.request.urlopen",
-            side_effect=[BytesIO(response_body), BytesIO(response_body)],
+            side_effect=[
+                BytesIO(response_body),
+                BytesIO(response_body),
+                BytesIO(response_body),
+            ],
         ), patch("agent.llm.real_llm.time.sleep"):
             with self.assertRaisesRegex(
                 RuntimeError,
                 "Gemini returned a candidate without text "
                 "\\(finish reason: MALFORMED_RESPONSE; details: "
-                "The response could not be decoded\\.; after 2 attempts\\)",
+                "The response could not be decoded\\.; after 3 attempts\\)",
             ):
                 GeminiLLM(api_key="test-key").generate("test prompt")
 
@@ -81,6 +86,28 @@ class TestGeminiLLM(unittest.TestCase):
             answer = GeminiLLM(api_key="test-key").generate("test prompt")
 
         self.assertEqual(answer, "Final Answer: Recovered.")
+        self.assertEqual(urlopen.call_count, 2)
+
+    def test_retries_transient_service_unavailable(self):
+        error_body = b'{"error":{"code":503,"status":"UNAVAILABLE"}}'
+        text_response = json.dumps({
+            "candidates": [{
+                "content": {"parts": [{"text": "Final Answer: Available."}]},
+            }],
+        }).encode("utf-8")
+
+        with patch(
+            "agent.llm.real_llm.urllib.request.urlopen",
+            side_effect=[
+                urllib.error.HTTPError(
+                    "https://example.test", 503, "Unavailable", {}, BytesIO(error_body)
+                ),
+                BytesIO(text_response),
+            ],
+        ) as urlopen, patch("agent.llm.real_llm.time.sleep"):
+            answer = GeminiLLM(api_key="test-key").generate("test prompt")
+
+        self.assertEqual(answer, "Final Answer: Available.")
         self.assertEqual(urlopen.call_count, 2)
 
 

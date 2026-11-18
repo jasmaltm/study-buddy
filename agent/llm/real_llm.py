@@ -65,7 +65,16 @@ class GeminiLLM(BaseLLM):
                 ).strip()
                 if not text:
                     finish_reason = candidate.get("finishReason")
-                    reason = f" (finish reason: {finish_reason})" if finish_reason else ""
+                    reason_details = []
+                    if finish_reason:
+                        reason_details.append(f"finish reason: {finish_reason}")
+                    finish_message = candidate.get("finishMessage")
+                    if isinstance(finish_message, str) and finish_message.strip():
+                        reason_details.append(f"details: {finish_message.strip()}")
+                    reason = (
+                        f" ({'; '.join(reason_details)})"
+                        if reason_details else ""
+                    )
                     raise RuntimeError(f"Gemini returned a candidate without text{reason}.")
                 return text
         except urllib.error.HTTPError as e:

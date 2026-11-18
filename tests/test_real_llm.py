@@ -44,7 +44,8 @@ class TestGeminiLLM(unittest.TestCase):
         response_body = json.dumps({
             "candidates": [{
                 "content": {"parts": []},
-                "finishReason": "MAX_TOKENS",
+                "finishReason": "MALFORMED_RESPONSE",
+                "finishMessage": "The response could not be decoded.",
             }],
         }).encode("utf-8")
 
@@ -54,7 +55,9 @@ class TestGeminiLLM(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 RuntimeError,
-                "Gemini returned a candidate without text \\(finish reason: MAX_TOKENS\\)",
+                "Gemini returned a candidate without text "
+                "\\(finish reason: MALFORMED_RESPONSE; details: "
+                "The response could not be decoded\\.\\)",
             ):
                 GeminiLLM(api_key="test-key").generate("test prompt")
 

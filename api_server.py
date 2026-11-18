@@ -18,7 +18,12 @@ from agent.safety import AuditLogger, SafetyGuard
 from run_agent import get_llm
 
 ROOT = Path(__file__).resolve().parent
-HOST = os.environ.get("HOST", "127.0.0.1")
+DEFAULT_HOST = (
+    "0.0.0.0"
+    if os.environ.get("RENDER", "").lower() == "true"
+    else "127.0.0.1"
+)
+HOST = os.environ.get("HOST", DEFAULT_HOST)
 PORT = int(os.environ.get("PORT", 8000))
 MAX_TASK_LENGTH = 10_000
 MAX_PENDING_APPROVALS = 100

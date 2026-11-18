@@ -20,7 +20,7 @@ from run_agent import get_llm
 ROOT = Path(__file__).resolve().parent
 DEFAULT_HOST = (
     "0.0.0.0"
-    if os.environ.get("RENDER", "").lower() == "true"
+    if os.environ.get("PORT")
     else "127.0.0.1"
 )
 HOST = os.environ.get("HOST", DEFAULT_HOST)

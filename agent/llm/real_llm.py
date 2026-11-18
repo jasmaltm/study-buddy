@@ -18,7 +18,7 @@ class GeminiLLM(BaseLLM):
     Real LLM adapter using Google Gemini API.
     Can use google-genai SDK if installed, or standard REST API via urllib.
     """
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-3.5-flash-lite"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-3.6-flash"):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
         self.model = model
 

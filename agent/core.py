@@ -225,6 +225,7 @@ class StudyBuddyAgent:
                 response = self.llm.generate(scratchpad)
             except Exception as e:
                 self.logger.log("LLM_ERROR", f"LLM generation failed: {str(e)}", step=current_step)
+                plan.mark_current_failed(str(e))
                 final_answer = f"I encountered an error communicating with the reasoning model: {str(e)}"
                 break
 

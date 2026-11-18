@@ -5,6 +5,12 @@
 #>
 
 $ErrorActionPreference = "Stop"
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "study-buddy-test-$([guid]::NewGuid().ToString('N'))"
+$testStorageDir = Join-Path $testRoot "storage"
+$testNotesDir = Join-Path $testStorageDir "notes"
+$testLogDir = Join-Path $testRoot "logs"
+New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $testStorageDir -Force | Out-Null
 
 Write-Host "=================================================================" -ForegroundColor Cyan
 Write-Host "   TESTING 7-PILLAR AI STUDY BUDDY AGENT ARCHITECTURE" -ForegroundColor Cyan
@@ -76,7 +82,7 @@ function Invoke-GenerateQuiz([string]$Topic, [int]$NumQuestions = 2) {
 }
 
 # Tool 4: save_study_notes (Sensitive tool requiring confirmation)
-function Invoke-SaveStudyNotes([string]$Title, [string]$Content, [string]$StorageDir = "storage/notes") {
+function Invoke-SaveStudyNotes([string]$Title, [string]$Content, [string]$StorageDir) {
     if (!(Test-Path $StorageDir)) { New-Item -ItemType Directory -Path $StorageDir -Force | Out-Null }
     $filePath = Join-Path $StorageDir "$Title.md"
     Set-Content -Path $filePath -Value $Content -Encoding UTF8
@@ -98,7 +104,7 @@ if ($resQuiz.Success -and $resQuiz.Data.Questions.Count -eq 2) {
     Write-Host "  [PASSED] Tool 3 (generate_quiz) generated structured MCQs." -ForegroundColor Green
 } else { throw "Tool 3 Failed" }
 
-$resNotes = Invoke-SaveStudyNotes -Title "Test_Notes" -Content "# Notes Content"
+$resNotes = Invoke-SaveStudyNotes -Title "Test_Notes" -Content "# Notes Content" -StorageDir $testNotesDir
 if ($resNotes.Success -and (Test-Path $resNotes.SavedFile)) {
     Write-Host "  [PASSED] Tool 4 (save_study_notes) wrote notes to disk." -ForegroundColor Green
     Remove-Item -Path $resNotes.SavedFile -Force
@@ -171,7 +177,7 @@ if (-not $attempt1.Success -and $attempt1.Error -eq "SyntaxError") {
 # Pillar 4: Memory Between Tasks (Cross-Session Persistence)
 # -------------------------------------------------------------
 Write-Host "`n[Test 5] Testing Pillar 4: Memory Between Tasks..." -ForegroundColor Yellow
-$memoryFile = "storage/test_memory.json"
+$memoryFile = Join-Path $testStorageDir "test_memory.json"
 $memoryObj = @{
     UserProfile = @{ Grade = "Grade 10"; Style = "Prefers analogies and step-by-step" }
     MasteredTopics = @("Photosynthesis", "Newton's Second Law")
@@ -215,8 +221,8 @@ if ($currentStep -gt $maxSteps) {
 } else { throw "Step Limit Failed" }
 
 # 6C: Audit Log
-$auditLogPath = "logs/test_agent_audit.log"
-if (!(Test-Path "logs")) { New-Item -ItemType Directory -Path "logs" -Force | Out-Null }
+$auditLogPath = Join-Path $testLogDir "test_agent_audit.log"
+if (!(Test-Path $testLogDir)) { New-Item -ItemType Directory -Path $testLogDir -Force | Out-Null }
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [STEP 1] [THINK] Student requested photosynthesis" | Out-File $auditLogPath -Append -Encoding UTF8
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [STEP 1] [ACT] search_knowledge_base" | Out-File $auditLogPath -Append -Encoding UTF8
 if (Test-Path $auditLogPath) {
@@ -228,4 +234,5 @@ if (Test-Path $auditLogPath) {
 Write-Host "`n=================================================================" -ForegroundColor Cyan
 Write-Host "   ALL 7 PILLARS VERIFIED AND PASSED SUCCESSFULLY!" -ForegroundColor Green
 Write-Host "=================================================================`n" -ForegroundColor Cyan
+Remove-Item -Path $testRoot -Recurse -Force
 

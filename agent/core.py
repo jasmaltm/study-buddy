@@ -52,9 +52,11 @@ CRITICAL RULES:
 4. Make at most one Action per response.
 5. If a tool reports an error, use its actual error message to recover.
 6. If search_knowledge_base returns NotFoundError, DO NOT search again for the same topic. The topic is missing from the local knowledge base, not necessarily unknown. Answer using your general educational knowledge, and clearly distinguish that answer from local knowledge-base results.
-7. After receiving a NotFoundError, your next response should normally be a Final Answer, not another search action.
-8. Do not include Action and Final Answer in the same response.
-9. Keep explanations suitable for the student's level.
+7. If generate_quiz returns NotFoundError, do not repeat the same call or claim a curated quiz was generated. You may offer a clearly labeled general-knowledge quiz if you can write accurate questions.
+8. If generate_quiz returns InsufficientQuestionsError, do not claim the requested count was met; explain the available count.
+9. After receiving a NotFoundError, do not retry the same tool call.
+10. Do not include Action and Final Answer in the same response.
+11. Keep explanations suitable for the student's level.
 """
 
 class StudyBuddyAgent:
@@ -434,9 +436,10 @@ class StudyBuddyAgent:
             tools_invoked.append(tool_name)
 
             # Pillar 1 & 3: LOOK (Execute Tool and Observe result or Catch error)
+            tool_result: Optional[ToolResult] = None
             try:
                 tool_func = tool_meta["func"]
-                tool_result: ToolResult = tool_func(**tool_args)
+                tool_result = tool_func(**tool_args)
                 obs_text = tool_result.to_observation()
                 
                 # Check if tool itself reported an error for self-correction (Pillar 3)
@@ -462,7 +465,7 @@ class StudyBuddyAgent:
             scratchpad += f"Observation: {obs_text}\n"
 
             # Index successfully saved notes in persistent student memory.
-            if tool_name == "save_study_notes" and tool_result.success:
+            if tool_name == "save_study_notes" and tool_result is not None and tool_result.success:
                 saved_note = tool_result.data
                 self.memory.index_study_note(
                     title=saved_note["title"],
@@ -471,7 +474,7 @@ class StudyBuddyAgent:
                 )
 
             # Finish immediately after a successfully approved note save.
-            if tool_name == "save_study_notes" and tool_result.success:
+            if tool_name == "save_study_notes" and tool_result is not None and tool_result.success:
                 final_answer = (
                     f"Study note '{tool_args.get('title', 'Untitled')}' "
                     "was saved successfully. "

@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import threading
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -17,12 +18,16 @@ from agent.safety import AuditLogger, SafetyGuard
 from run_agent import get_llm
 
 ROOT = Path(__file__).resolve().parent
-HOST = os.environ.get("HOST", "0.0.0.0")
+HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", 8000))
+MAX_TASK_LENGTH = 10_000
+MAX_PENDING_APPROVALS = 100
+APPROVAL_TTL_SECONDS = 600
 
 MEMORY = AgentMemory(storage_path=config.MEMORY_FILE_PATH)
 LOGGER = AuditLogger(log_file=config.LOG_FILE_PATH)
 AGENT_LOCK = threading.Lock()
+PENDING_LOCK = threading.Lock()
 PENDING_APPROVALS: dict[str, dict] = {}
 
 
@@ -58,6 +63,30 @@ def run_agent_task(task: str, approved_action: dict | None = None) -> dict:
         return agent.run(task)
 
 
+def store_pending_approval(task: str, tool_name: str, args: dict) -> str | None:
+    now = time.monotonic()
+    with PENDING_LOCK:
+        expired = [
+            request_id
+            for request_id, request in PENDING_APPROVALS.items()
+            if now - request["created_at"] > APPROVAL_TTL_SECONDS
+        ]
+        for request_id in expired:
+            PENDING_APPROVALS.pop(request_id, None)
+
+        if len(PENDING_APPROVALS) >= MAX_PENDING_APPROVALS:
+            return None
+
+        request_id = str(uuid.uuid4())
+        PENDING_APPROVALS[request_id] = {
+            "task": task,
+            "tool_name": tool_name,
+            "args": args,
+            "created_at": now,
+        }
+        return request_id
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "AIStudyBuddy/1.0"
 
@@ -75,11 +104,19 @@ class Handler(BaseHTTPRequestHandler):
     def _read_json(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > 1_000_000:
-                raise ValueError("Request body is empty or too large.")
-            return json.loads(self.rfile.read(length).decode("utf-8"))
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except ValueError as exc:
+            raise ValueError("Invalid Content-Length header.") from exc
+        if length <= 0:
+            raise ValueError("Request body is empty.")
+        if length > 1_000_000:
+            raise ValueError("Request body is too large.")
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("Please send valid JSON.") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("JSON request body must be an object.")
+        return payload
 
     def do_GET(self):
         path = urlparse(self.path).path
@@ -96,7 +133,8 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         if path == "/api/memory":
-            self._send(200, {"ok": True, "memory": MEMORY.data})
+            with AGENT_LOCK:
+                self._send(200, {"ok": True, "memory": MEMORY.data})
             return
         self._send(404, {"error": "Not found."})
 
@@ -126,20 +164,29 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": str(exc)})
 
     def _ask(self, payload):
-        task = str(payload.get("task", "")).strip()
+        task_value = payload.get("task")
+        if not isinstance(task_value, str):
+            self._send(400, {"error": "Please enter a text question or task."})
+            return
+        task = task_value.strip()
         if not task:
             self._send(400, {"error": "Please enter a question or task."})
+            return
+        if len(task) > MAX_TASK_LENGTH:
+            self._send(400, {
+                "error": f"Questions must be {MAX_TASK_LENGTH} characters or fewer."
+            })
             return
         try:
             result = run_agent_task(task)
             self._send(200, {"ok": True, "result": result})
         except ApprovalRequired as request:
-            request_id = str(uuid.uuid4())
-            PENDING_APPROVALS[request_id] = {
-                "task": task,
-                "tool_name": request.tool_name,
-                "args": request.args,
-            }
+            request_id = store_pending_approval(task, request.tool_name, request.args)
+            if request_id is None:
+                self._send(503, {
+                    "error": "Too many approval requests are pending. Please try again shortly."
+                })
+                return
             self._send(202, {
                 "ok": True,
                 "approval_required": True,
@@ -150,9 +197,19 @@ class Handler(BaseHTTPRequestHandler):
             })
 
     def _approve(self, payload):
-        request_id = str(payload.get("request_id", ""))
+        request_id = payload.get("request_id")
         approved = payload.get("approved")
-        pending = PENDING_APPROVALS.pop(request_id, None)
+        if not isinstance(request_id, str) or not request_id:
+            self._send(400, {"error": "A valid approval request ID is required."})
+            return
+        if not isinstance(approved, bool):
+            self._send(400, {"error": "Approval choice must be true or false."})
+            return
+
+        with PENDING_LOCK:
+            pending = PENDING_APPROVALS.pop(request_id, None)
+        if pending and time.monotonic() - pending["created_at"] > APPROVAL_TTL_SECONDS:
+            pending = None
         if not pending:
             self._send(404, {"error": "This approval request has expired. Please try again."})
             return
@@ -173,12 +230,14 @@ class Handler(BaseHTTPRequestHandler):
             )
             self._send(200, {"ok": True, "result": result})
         except ApprovalRequired as request:
-            next_id = str(uuid.uuid4())
-            PENDING_APPROVALS[next_id] = {
-                "task": pending["task"],
-                "tool_name": request.tool_name,
-                "args": request.args,
-            }
+            next_id = store_pending_approval(
+                pending["task"], request.tool_name, request.args
+            )
+            if next_id is None:
+                self._send(503, {
+                    "error": "Too many approval requests are pending. Please try again shortly."
+                })
+                return
             self._send(202, {
                 "ok": True,
                 "approval_required": True,

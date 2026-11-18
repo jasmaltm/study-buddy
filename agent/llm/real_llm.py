@@ -51,14 +51,28 @@ class GeminiLLM(BaseLLM):
             with urllib.request.urlopen(req, timeout=90) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 candidates = result.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts:
-                        return parts[0].get("text", "").strip()
-                return "Thought: No response generated from model.\nFinal Answer: Unable to process."
+                if not candidates:
+                    block_reason = (result.get("promptFeedback") or {}).get("blockReason")
+                    reason = f" (prompt blocked: {block_reason})" if block_reason else ""
+                    raise RuntimeError(f"Gemini returned no response candidate{reason}.")
+
+                candidate = candidates[0]
+                parts = (candidate.get("content") or {}).get("parts", [])
+                text = "\n".join(
+                    part["text"]
+                    for part in parts
+                    if isinstance(part.get("text"), str)
+                ).strip()
+                if not text:
+                    finish_reason = candidate.get("finishReason")
+                    reason = f" (finish reason: {finish_reason})" if finish_reason else ""
+                    raise RuntimeError(f"Gemini returned a candidate without text{reason}.")
+                return text
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8")
             raise RuntimeError(f"Gemini API HTTP Error {e.code}: {error_body}")
+        except RuntimeError:
+            raise
         except Exception as e:
             raise RuntimeError(f"Gemini API Request failed: {str(e)}")
 

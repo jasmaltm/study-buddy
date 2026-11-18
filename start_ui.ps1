@@ -1,27 +1,89 @@
 <#
 .SYNOPSIS
-    Launcher for AI Study Buddy Web UI (Phase 8 / Task 8.2)
-    Opens the interactive 7-Pillar AI Study Buddy application in your default web browser.
+    Starts the AI Study Buddy API and opens its local web interface.
 #>
 
-$uiPath = Join-Path $PSScriptRoot "index.html"
+$ErrorActionPreference = "Stop"
+$port = 8000
+if (-not [string]::IsNullOrWhiteSpace($env:PORT)) {
+    $configuredPort = 0
+    if (-not [int]::TryParse($env:PORT, [ref]$configuredPort) -or
+        $configuredPort -lt 1 -or $configuredPort -gt 65535) {
+        throw "PORT must be an integer between 1 and 65535."
+    }
+    $port = $configuredPort
+}
+$serverUrl = "http://127.0.0.1:$port"
+$healthUrl = "$serverUrl/api/health"
+$provider = $env:REAL_LLM_PROVIDER
+if ([string]::IsNullOrWhiteSpace($provider)) {
+    $provider = "ollama"
+}
+$provider = $provider.Trim().ToLowerInvariant()
+$useFake = "$env:USE_FAKE_LLM".Trim().ToLowerInvariant() -eq "true"
 
-if (Test-Path $uiPath) {
-    Write-Host "==========================================================================" -ForegroundColor Cyan
-    Write-Host "   LAUNCHING AI STUDY BUDDY WEB APPLICATION" -ForegroundColor Cyan
-    Write-Host "==========================================================================" -ForegroundColor Cyan
-    Write-Host "Opening in default browser: $uiPath" -ForegroundColor Green
-    Start-Process $uiPath
-    Write-Host "`nApp active! You can interactively test all 7 Pillars in the web interface:" -ForegroundColor Yellow
-    Write-Host "  1. Loop: Think -> Act -> Look live stepper" -ForegroundColor DarkCyan
-    Write-Host "  2. 4 Active Tools: Knowledge Base, Math Calculator, Quiz, Save Notes" -ForegroundColor DarkCyan
-    Write-Host "  3. Self-Healing: Click 'Self-Correction (Pillar 3)' quick demo" -ForegroundColor DarkCyan
-    Write-Host "  4. Memory Dashboard: Click 'Memory' in top nav to inspect persisted profile" -ForegroundColor DarkCyan
-    Write-Host "  5. Pre-Action Plan: Visible dynamic roadmap banner" -ForegroundColor DarkCyan
-    Write-Host "  6. Safety Gate: Human-in-the-loop modal prompts before saving notes" -ForegroundColor DarkCyan
-    Write-Host "  7. Engine Switcher: Toggle between Fake LLM and Real LLM (Gemini)" -ForegroundColor DarkCyan
-    Write-Host "==========================================================================" -ForegroundColor Cyan
-} else {
-    Write-Error "Could not find index.html at $uiPath"
+if (-not $useFake -and
+    ($provider.Trim().ToLowerInvariant() -eq "gemini") -and
+    [string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
+    $secureKey = Read-Host "Enter your Gemini API key (input hidden)" -AsSecureString
+    $keyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+    try {
+        $env:GEMINI_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($keyPointer)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPointer)
+        $secureKey.Dispose()
+    }
+
+    if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
+        throw "A Gemini API key is required. Create one at https://aistudio.google.com/app/apikey."
+    }
 }
 
+$serverReady = $false
+$health = $null
+try {
+    $health = Invoke-RestMethod -Uri $healthUrl -TimeoutSec 2
+} catch {
+    $health = $null
+}
+
+if ($health -and $health.ok -eq $true) {
+    $serverReady = $true
+    $actualProvider = [string]$health.provider
+    $actualFake = [bool]$health.fake_llm
+    if ($actualProvider -ne $provider -or $actualFake -ne $useFake) {
+        throw "A server is already running with provider '$actualProvider' (fake mode: $actualFake). Stop it, then run this launcher again for '$provider' (fake mode: $useFake)."
+    }
+    Write-Host "Using the existing AI Study Buddy server at $serverUrl"
+} else {
+    Write-Host "Starting the AI Study Buddy server..."
+}
+
+if (-not $serverReady) {
+    $python = Get-Command python -ErrorAction Stop
+    Start-Process -FilePath $python.Source `
+        -ArgumentList "api_server.py" `
+        -WorkingDirectory $PSScriptRoot
+
+    $lastError = $null
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        try {
+            $health = Invoke-RestMethod -Uri $healthUrl -TimeoutSec 2
+            if ($health.ok -eq $true) {
+                $serverReady = $true
+                break
+            }
+        } catch {
+            $lastError = $_
+        }
+        Start-Sleep -Seconds 1
+    }
+
+    if (-not $serverReady) {
+        $detail = if ($lastError) { $lastError.Exception.Message } else { "Health check returned an unexpected response." }
+        throw "AI Study Buddy did not start at $serverUrl. $detail"
+    }
+}
+
+Start-Process -FilePath $serverUrl
+Write-Host "AI Study Buddy is ready at $serverUrl"

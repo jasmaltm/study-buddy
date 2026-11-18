@@ -28,6 +28,24 @@ class TestConfigurationEnvironment(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "False gemini")
 
+    def test_defaults_to_ollama(self):
+        env = os.environ.copy()
+        env.pop("REAL_LLM_PROVIDER", None)
+        env["USE_FAKE_LLM"] = "false"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import config; print(config.USE_FAKE_LLM, config.REAL_LLM_PROVIDER)",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "False ollama")
+
     def test_rejects_invalid_fake_llm_setting(self):
         result = self.run_config(USE_FAKE_LLM="sometimes")
         self.assertNotEqual(result.returncode, 0)

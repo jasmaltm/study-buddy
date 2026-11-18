@@ -5,11 +5,13 @@ Requires zero network access, zero API keys, and zero external packages.
 """
 
 import os
-import shutil
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from agent.core import StudyBuddyAgent
 from agent.tools import (
+    TOOL_REGISTRY,
     search_knowledge_base,
     calculate_math_formula,
     generate_quiz,
@@ -34,14 +36,106 @@ class TestAgentPillars(unittest.TestCase):
     """
 
     def setUp(self):
-        self.test_storage_dir = "tests/test_storage"
-        os.makedirs(self.test_storage_dir, exist_ok=True)
+        self.test_storage = tempfile.TemporaryDirectory(prefix="study-buddy-test-")
+        self.test_storage_dir = self.test_storage.name
         self.memory_file = os.path.join(self.test_storage_dir, "test_memory.json")
         self.log_file = os.path.join(self.test_storage_dir, "test_audit.log")
+        self.loggers = []
 
     def tearDown(self):
-        if os.path.exists(self.test_storage_dir):
-            shutil.rmtree(self.test_storage_dir, ignore_errors=True)
+        for logger in self.loggers:
+            logger.close()
+        self.test_storage.cleanup()
+
+    def new_logger(self):
+        logger = AuditLogger(log_file=self.log_file)
+        self.loggers.append(logger)
+        return logger
+
+    def test_corrupt_memory_is_not_silently_replaced(self):
+        with open(self.memory_file, "w", encoding="utf-8") as memory_file:
+            memory_file.write("{")
+
+        with self.assertRaisesRegex(RuntimeError, "Could not load memory file"):
+            AgentMemory(storage_path=self.memory_file)
+
+        with open(self.memory_file, "r", encoding="utf-8") as memory_file:
+            self.assertEqual(memory_file.read(), "{")
+
+    def test_memory_save_keeps_previous_file_when_serialization_fails(self):
+        memory = AgentMemory(storage_path=self.memory_file)
+        memory.save()
+        with open(self.memory_file, "r", encoding="utf-8-sig") as memory_file:
+            original = memory_file.read()
+
+        memory.data["not_serializable"] = object()
+        with self.assertRaises(TypeError):
+            memory.save()
+
+        with open(self.memory_file, "r", encoding="utf-8-sig") as memory_file:
+            self.assertEqual(memory_file.read(), original)
+        self.assertEqual(
+            [name for name in os.listdir(self.test_storage_dir) if name.endswith(".tmp")],
+            []
+        )
+
+    def test_math_evaluator_rejects_python_object_access(self):
+        result = calculate_math_formula("().__class__.__bases__")
+        self.assertFalse(result.success)
+        self.assertEqual(result.error, "ValidationError")
+
+    def test_math_evaluator_preserves_supported_functions_and_limits_large_results(self):
+        result = calculate_math_formula("sqrt(144) + 25")
+        self.assertTrue(result.success)
+        self.assertEqual(result.data, 37)
+
+        oversized = calculate_math_formula("100**1000")
+        self.assertFalse(oversized.success)
+        self.assertEqual(oversized.error, "ValidationError")
+
+    def test_quiz_generator_does_not_invent_generic_questions_or_overstate_count(self):
+        unknown = generate_quiz(topic="planetary geology", num_questions=2)
+        self.assertFalse(unknown.success)
+        self.assertEqual(unknown.error, "NotFoundError")
+
+        unavailable_count = generate_quiz(
+            topic="Newton's second law",
+            num_questions=3
+        )
+        self.assertFalse(unavailable_count.success)
+        self.assertEqual(unavailable_count.error, "InsufficientQuestionsError")
+
+    def test_empty_safety_confirmation_denies_sensitive_action(self):
+        guard = SafetyGuard(logger=self.new_logger())
+        with patch("builtins.input", return_value=""):
+            self.assertFalse(
+                guard.request_user_confirmation("save_study_notes", {"title": "Notes"})
+            )
+
+    def test_save_tool_exception_does_not_access_uninitialized_result(self):
+        def fail_to_save(**kwargs):
+            raise OSError(f"simulated write failure for {kwargs['title']}")
+
+        test_tools = dict(TOOL_REGISTRY)
+        test_tools["save_study_notes"] = {
+            **TOOL_REGISTRY["save_study_notes"],
+            "func": fail_to_save,
+        }
+        with patch("agent.core.TOOL_REGISTRY", test_tools):
+            agent = StudyBuddyAgent(
+                llm=FakeLLM(scripted_responses=[
+                    "Thought: Save the requested note.\n"
+                    "Action: save_study_notes(title=\"Notes\", content=\"Study notes\")",
+                    "Thought: The save failed, so I will report that clearly.\n"
+                    "Final Answer: The note could not be saved.",
+                ]),
+                memory=AgentMemory(storage_path=self.memory_file),
+                logger=self.new_logger(),
+                auto_approve_safety=True,
+            )
+            result = agent.run("Save a study note")
+
+        self.assertIn("could not be saved", result["final_answer"])
 
     # -------------------------------------------------------------
     # Pillar 2: 2-4 Clearly Described Tools
@@ -118,7 +212,7 @@ class TestAgentPillars(unittest.TestCase):
         
         fake_llm = FakeLLM(scripted_responses=scripted)
         memory = AgentMemory(storage_path=self.memory_file)
-        logger = AuditLogger(log_file=self.log_file)
+        logger = self.new_logger()
         
         agent = StudyBuddyAgent(
             llm=fake_llm,
@@ -157,7 +251,12 @@ class TestAgentPillars(unittest.TestCase):
         
         fake_llm = FakeLLM(scripted_responses=scripted)
         memory = AgentMemory(storage_path=self.memory_file)
-        agent = StudyBuddyAgent(llm=fake_llm, memory=memory, auto_approve_safety=True)
+        agent = StudyBuddyAgent(
+            llm=fake_llm,
+            memory=memory,
+            logger=self.new_logger(),
+            auto_approve_safety=True
+        )
         
         result = agent.run("Calculate falling distance for 5 seconds")
         
@@ -181,7 +280,12 @@ class TestAgentPillars(unittest.TestCase):
         llm1 = FakeLLM(scripted_responses=[
             "Thought: Recalling concepts.\nFinal Answer: Task 1 finished."
         ])
-        agent1 = StudyBuddyAgent(llm=llm1, memory=memory1, auto_approve_safety=True)
+        agent1 = StudyBuddyAgent(
+            llm=llm1,
+            memory=memory1,
+            logger=self.new_logger(),
+            auto_approve_safety=True
+        )
         agent1.run("Review Newton's second law")
         
         # Session 2: Fresh Agent instance loading the same persistent memory file
@@ -211,6 +315,7 @@ class TestAgentPillars(unittest.TestCase):
         agent_denied = StudyBuddyAgent(
             llm=FakeLLM(scripted_responses=scripted_denied),
             memory=AgentMemory(storage_path=self.memory_file),
+            logger=self.new_logger(),
             auto_approve_safety=False  # User rejects confirmation!
         )
         res_denied = agent_denied.run("Save exam cheat sheet")
@@ -228,6 +333,7 @@ class TestAgentPillars(unittest.TestCase):
         agent_limited = StudyBuddyAgent(
             llm=FakeLLM(scripted_responses=runaway_script),
             memory=AgentMemory(storage_path=self.memory_file),
+            logger=self.new_logger(),
             max_steps=3  # Hard cap at 3 steps
         )
         res_limited = agent_limited.run("Run infinite queries")

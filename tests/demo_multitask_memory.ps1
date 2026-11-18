@@ -13,7 +13,21 @@ Write-Host "====================================================================
 Write-Host "   PHASE 3: MULTI-TASK CROSS-SESSION MEMORY EXECUTION DEMO" -ForegroundColor Cyan
 Write-Host "==========================================================================" -ForegroundColor Cyan
 
-$memoryFile = "storage/memory.json"
+$memoryFile = Join-Path ([System.IO.Path]::GetTempPath()) "study-buddy-demo-memory-$([guid]::NewGuid().ToString('N')).json"
+$demoMemory = @{
+    user_profile = @{
+        name = "Student"
+        grade_level = "Grade 10"
+        learning_style = "Prefers intuitive analogies and step-by-step breakdowns"
+        preferred_subjects = @("Science", "Math")
+    }
+    mastered_concepts = @()
+    weak_areas = @()
+    quiz_scores = @()
+    study_notes_index = @()
+    task_history = @()
+}
+$demoMemory | ConvertTo-Json -Depth 6 | Set-Content -Path $memoryFile -Encoding UTF8
 
 # --- SESSION 1: Learn Newton's Laws ---
 Write-Host "`n>>> [SESSION 1] Student studies Newton's Second Law..." -ForegroundColor Yellow
@@ -36,9 +50,9 @@ $session1Mem.task_history = @($session1Mem.task_history + @{
     tools_used = @("calculate_math_formula", "generate_quiz")
 })
 
-# Save back to storage/memory.json
+# Save the isolated demonstration memory.
 $session1Mem | ConvertTo-Json -Depth 6 | Set-Content -Path $memoryFile -Encoding UTF8
-Write-Host "  [SESSION 1 COMMITTED] Saved to $memoryFile" -ForegroundColor Green
+Write-Host "  [SESSION 1 COMMITTED] Saved to temporary demo memory." -ForegroundColor Green
 
 
 # --- SESSION 2: Student Struggles with Thermodynamics ---
@@ -62,16 +76,16 @@ $session2Mem.task_history = @($session2Mem.task_history + @{
     tools_used = @("search_knowledge_base", "generate_quiz")
 })
 
-# Save back to storage/memory.json
+# Save the isolated demonstration memory.
 $session2Mem | ConvertTo-Json -Depth 6 | Set-Content -Path $memoryFile -Encoding UTF8
-Write-Host "  [SESSION 2 COMMITTED] Saved to $memoryFile" -ForegroundColor Green
+Write-Host "  [SESSION 2 COMMITTED] Saved to temporary demo memory." -ForegroundColor Green
 
 
 # --- SESSION 3: Brand New Agent Instance Spawns ---
 Write-Host "`n>>> [SESSION 3] Fresh Agent instance boots up..." -ForegroundColor Yellow
 Write-Host "  Simulating completely new application launch (cold start)..." -ForegroundColor Gray
 
-# Agent cold start: reads storage/memory.json
+# Agent cold start: reads the isolated demo memory file.
 $agentColdStartMemory = Get-Content -Path $memoryFile -Raw | ConvertFrom-Json
 
 # Generate System Prompt Context Injection
@@ -106,4 +120,5 @@ if ($promptContext.Contains("Newton's Second Law") -and $promptContext.Contains(
 Write-Host "`n==========================================================================" -ForegroundColor Cyan
 Write-Host "   PHASE 3 EXECUTION COMPLETE: PERSISTENT MEMORY VERIFIED!" -ForegroundColor Green
 Write-Host "==========================================================================" -ForegroundColor Cyan
+Remove-Item -Path $memoryFile -Force
 

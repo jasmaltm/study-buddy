@@ -12,8 +12,7 @@ Write-Host "====================================================================
 Write-Host "   PHASE 3: VERIFICATION OF MEMORY BETWEEN TASKS (PILLAR 4)" -ForegroundColor Cyan
 Write-Host "==========================================================================" -ForegroundColor Cyan
 
-$testMemoryFile = "storage/test_memory_phase3.json"
-if (Test-Path $testMemoryFile) { Remove-Item $testMemoryFile -Force }
+$testMemoryFile = Join-Path ([System.IO.Path]::GetTempPath()) "study-buddy-memory-$([guid]::NewGuid().ToString('N')).json"
 
 # -------------------------------------------------------------------------
 # TASK 3.1: Memory Store Architecture

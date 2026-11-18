@@ -1,6 +1,6 @@
 """
 Configuration file for AI Study Buddy Agent.
-Toggle between Fake LLM (for zero-cost offline testing) and Real LLM (Gemini/OpenAI).
+Toggle between Fake LLM (for zero-cost offline testing) and real LLM providers.
 """
 
 import os
@@ -11,8 +11,8 @@ if _use_fake_llm not in {"true", "false"}:
     raise ValueError("USE_FAKE_LLM must be 'true' or 'false'.")
 USE_FAKE_LLM = _use_fake_llm == "true"
 
-# Real LLM Provider ('gemini' or 'openai')
-REAL_LLM_PROVIDER = os.environ.get("REAL_LLM_PROVIDER", "gemini").strip().lower()
+# Real LLM Provider ('ollama', 'gemini', or 'openai')
+REAL_LLM_PROVIDER = os.environ.get("REAL_LLM_PROVIDER", "ollama").strip().lower()
 if REAL_LLM_PROVIDER not in {"gemini", "openai", "ollama"}:
     raise ValueError("REAL_LLM_PROVIDER must be 'gemini', 'openai', or 'ollama'.")
 

@@ -92,17 +92,27 @@ if ($envExample.Contains("GEMINI_API_KEY") -and $envExample.Contains("USE_FAKE_L
     throw ".env.example is missing essential keys."
 }
 
-# Verify storage/memory.json is valid JSON
+# Verify storage/memory.json has the required schema; empty collections are valid.
 try {
     $memoryJson = Get-Content -Path "storage/memory.json" -Raw | ConvertFrom-Json
-    if ($memoryJson.user_profile -and $memoryJson.mastered_concepts) {
-        Write-Host "  [PASSED] storage/memory.json seeded with valid JSON schema." -ForegroundColor Green
-    } else {
-        throw "storage/memory.json missing required fields."
-    }
 } catch {
-    throw "storage/memory.json contains invalid JSON: $_"
+    throw "storage/memory.json is not valid JSON: $_"
 }
+
+$memoryFields = @($memoryJson.PSObject.Properties.Name)
+$requiredMemoryFields = @(
+    "user_profile",
+    "mastered_concepts",
+    "weak_areas",
+    "quiz_scores",
+    "study_notes_index",
+    "task_history"
+)
+$missingMemoryFields = @($requiredMemoryFields | Where-Object { $memoryFields -notcontains $_ })
+if ($missingMemoryFields.Count -gt 0) {
+    throw "storage/memory.json is missing required fields: $($missingMemoryFields -join ', ')."
+}
+Write-Host "  [PASSED] storage/memory.json has the required schema." -ForegroundColor Green
 
 Write-Host "`n==========================================================================" -ForegroundColor Cyan
 Write-Host "   PHASE 1 COMPLETED: ALL SCAFFOLDING & CONFIGURATIONS VERIFIED!" -ForegroundColor Green

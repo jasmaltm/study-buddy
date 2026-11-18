@@ -46,7 +46,7 @@
     const steps = Array.isArray(plan) ? plan : (plan.steps || []);
     if (!steps.length) return;
 
-    container.innerHTML = "";
+    container.replaceChildren();
     steps.forEach((step, idx) => {
       const desc = typeof step === "string" ? step : (step.description || "Step");
       const tool = typeof step === "object" ? (step.expected_tool || "none") : "none";
@@ -72,19 +72,34 @@
 
       const card = document.createElement("div");
       card.className = `p-3 rounded-2xl ${borderColor} border flex items-center gap-3 transition-all`;
-      card.innerHTML = `
-        <span class="w-6 h-6 rounded-full ${numColor} flex items-center justify-center font-bold text-xs shrink-0">${idx + 1}</span>
-        <div class="flex-1 min-w-0">
-          <div class="font-bold text-slate-800 truncate">${desc}</div>
-          <div class="text-[11px] text-slate-400 font-mono">${tool}</div>
-        </div>
-        <span class="text-[10px] px-2 py-0.5 rounded-full border ${statusColor} shrink-0">${status}</span>
-      `;
+      const number = document.createElement("span");
+      number.className = `w-6 h-6 rounded-full ${numColor} flex items-center justify-center font-bold text-xs shrink-0`;
+      number.textContent = String(idx + 1);
+
+      const details = document.createElement("div");
+      details.className = "flex-1 min-w-0";
+
+      const description = document.createElement("div");
+      description.className = "font-bold text-slate-800 truncate";
+      description.textContent = desc;
+
+      const toolName = document.createElement("div");
+      toolName.className = "text-[11px] text-slate-400 font-mono";
+      toolName.textContent = tool;
+
+      details.append(description, toolName);
+
+      const statusBadge = document.createElement("span");
+      statusBadge.className = `text-[10px] px-2 py-0.5 rounded-full border ${statusColor} shrink-0`;
+      statusBadge.textContent = status;
+
+      card.append(number, details, statusBadge);
       container.appendChild(card);
     });
 
     if (statusBadge && plan.progress) {
-      statusBadge.textContent = `${plan.progress.completed_steps}/${plan.progress.total_steps} (${plan.progress.percentage}%)`;
+      const resolvedSteps = plan.progress.resolved_steps ?? plan.progress.completed_steps;
+      statusBadge.textContent = `${resolvedSteps}/${plan.progress.total_steps} resolved (${plan.progress.percentage}%)`;
       statusBadge.className = plan.progress.percentage === 100
         ? "px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-mint-100 text-mint-700 border border-mint-200"
         : "px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200";
@@ -126,7 +141,12 @@ function formatResult(result) {
   const progress = result.plan?.progress;
 
   if (progress) {
-    output += `Plan progress: ${progress.completed_steps}/${progress.total_steps} steps (${progress.percentage}%)\n\n`;
+    const resolvedSteps = progress.resolved_steps ?? progress.completed_steps;
+    output += `Plan progress: ${resolvedSteps}/${progress.total_steps} steps resolved (${progress.percentage}%)`;
+    if (progress.completed_steps !== resolvedSteps) {
+      output += `; ${progress.completed_steps} completed successfully`;
+    }
+    output += "\n\n";
   }
 
   // Display tools used.

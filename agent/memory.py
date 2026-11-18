@@ -6,6 +6,7 @@ Retains user profile, mastered concepts, weak topics, quiz scores, and past task
 
 import os
 import json
+import tempfile
 import time
 from typing import Dict, Any, List, Optional
 
@@ -38,18 +39,74 @@ class AgentMemory:
             try:
                 with open(self.storage_path, "r", encoding="utf-8-sig") as f:
                     loaded = json.load(f)
-                    self.data.update(loaded)
-            except Exception as e:
-                print(f"[Memory Warning] Could not load memory file, starting with defaults: {e}")
+                if not isinstance(loaded, dict):
+                    raise ValueError("Memory file must contain a JSON object.")
+                expected_types = {
+                    "user_profile": dict,
+                    "mastered_concepts": list,
+                    "weak_areas": list,
+                    "quiz_scores": list,
+                    "study_notes_index": list,
+                    "task_history": list,
+                }
+                for field, expected_type in expected_types.items():
+                    if field in loaded and not isinstance(loaded[field], expected_type):
+                        raise ValueError(f"Memory field '{field}' has an invalid type.")
+                for field in ("mastered_concepts", "weak_areas"):
+                    if field in loaded and any(
+                        not isinstance(concept, str) for concept in loaded[field]
+                    ):
+                        raise ValueError(f"Memory field '{field}' must contain text values.")
+                for field in ("quiz_scores", "study_notes_index", "task_history"):
+                    if field in loaded and any(
+                        not isinstance(entry, dict) for entry in loaded[field]
+                    ):
+                        raise ValueError(f"Memory field '{field}' must contain objects.")
+                for note in loaded.get("study_notes_index", []):
+                    if (not isinstance(note.get("title"), str)
+                            or not isinstance(note.get("tags", []), list)
+                            or any(not isinstance(tag, str) for tag in note.get("tags", []))
+                            or not isinstance(note.get("file_path", ""), str)):
+                        raise ValueError("Study note entries have an invalid structure.")
+                for quiz in loaded.get("quiz_scores", []):
+                    if (not isinstance(quiz.get("topic"), str)
+                            or any(type(quiz.get(field)) is not int
+                                   for field in ("score", "total", "percentage"))):
+                        raise ValueError("Quiz score entries have an invalid structure.")
+                self.data.update(loaded)
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Could not load memory file '{self.storage_path}': {exc}"
+                ) from exc
 
     def save(self):
         """Persists memory atomically to disk."""
-        os.makedirs(os.path.dirname(self.storage_path) or ".", exist_ok=True)
+        directory = os.path.dirname(os.path.abspath(self.storage_path))
+        os.makedirs(directory, exist_ok=True)
+        temporary_path = None
         try:
-            with open(self.storage_path, "w", encoding="utf-8-sig") as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8-sig",
+                dir=directory,
+                prefix=".study-buddy-memory-",
+                suffix=".tmp",
+                delete=False,
+            ) as f:
+                temporary_path = f.name
                 json.dump(self.data, f, indent=2)
-        except Exception as e:
-            print(f"[Memory Error] Could not save memory: {e}")
+                f.flush()
+                os.fsync(f.fileno())
+            if temporary_path is None:
+                raise RuntimeError("Temporary memory file was not created.")
+            os.replace(temporary_path, self.storage_path)
+        except OSError as exc:
+            raise OSError(
+                f"Could not save memory file '{self.storage_path}': {exc}"
+            ) from exc
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
     def get_user_profile(self) -> Dict[str, Any]:
         return self.data.get("user_profile", {})
@@ -68,7 +125,7 @@ class AgentMemory:
             profile["grade_level"] = grade_level
         if learning_style:
             profile["learning_style"] = learning_style
-        if preferred_subjects:
+        if preferred_subjects is not None:
             profile["preferred_subjects"] = preferred_subjects
         self.save()
 
@@ -98,7 +155,12 @@ class AgentMemory:
         - Score >= 80%: Promoted to mastered concepts.
         - Score < 70%: Flagged as weak area for follow-up review.
         """
-        pct = round((score / total) * 100) if total > 0 else 0
+        if not isinstance(topic, str) or not topic.strip():
+            raise ValueError("Quiz topic must be non-empty text.")
+        if (type(score) is not int or type(total) is not int
+                or total <= 0 or score < 0 or score > total):
+            raise ValueError("Quiz score must be between zero and a positive total.")
+        pct = round((score / total) * 100)
         entry = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "topic": topic,

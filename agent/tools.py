@@ -4,7 +4,9 @@ Educational and computational tools for the AI Study Buddy Agent.
 Each tool has explicit schemas, input validation, and self-contained error handling.
 """
 
+import ast
 import math
+import operator
 import os
 import re
 import json
@@ -77,7 +79,7 @@ KNOWLEDGE_BASE = {
         "definition": "The electric current through a conductor between two points is directly proportional to the voltage across the two points and inversely proportional to the resistance.",
         "formula": "V = I * R (Voltage = Current x Resistance)",
         "key_facts": [
-            "V is measured in Volts (V), I in Amperes (A), and R in Ohms (Î©).",
+            "V is measured in Volts (V), I in Amperes (A), and R in ohms.",
             "Electrical power: P = V * I = I^2 * R = V^2 / R.",
             "Applies strictly to ohmic conductors at constant temperature."
         ]
@@ -86,7 +88,7 @@ KNOWLEDGE_BASE = {
     "acids and bases": {
         "subject": "chemistry",
         "title": "Acids, Bases & pH Scale",
-        "definition": "Substances characterized by their ability to donate protons (Arrhenius/BrÃ¸nsted-Lowry acid) or accept protons (base).",
+        "definition": "Substances characterized by their ability to donate protons (Arrhenius/Bronsted-Lowry acid) or accept protons (base).",
         "formula": "pH = -log10[H+]; Neutral pH = 7.0; Acidic < 7.0; Basic > 7.0",
         "key_facts": [
             "Acids turn blue litmus paper red; bases turn red litmus paper blue.",
@@ -110,12 +112,12 @@ KNOWLEDGE_BASE = {
         "subject": "math",
         "title": "Quadratic Formula",
         "definition": "Formula providing the roots (solutions) to any quadratic equation of the form ax^2 + bx + c = 0.",
-        "formula": "x = (-b Â± sqrt(b^2 - 4*a*c)) / (2*a)",
+        "formula": "x = (-b +/- sqrt(b^2 - 4*a*c)) / (2*a)",
         "key_facts": [
-            "Discriminant Î” = b^2 - 4*a*c determines nature of roots.",
-            "If Î” > 0: two distinct real roots.",
-            "If Î” = 0: exactly one real repeated root.",
-            "If Î” < 0: two complex conjugate roots."
+            "Discriminant Delta = b^2 - 4*a*c determines nature of roots.",
+            "If Delta > 0: two distinct real roots.",
+            "If Delta = 0: exactly one real repeated root.",
+            "If Delta < 0: two complex conjugate roots."
         ]
     }
 }
@@ -141,6 +143,10 @@ class ToolResult:
             "data": self.data,
             "error": self.error
         }
+
+
+class _MathExpressionError(Exception):
+    pass
 
 
 # =========================================================================
@@ -325,6 +331,12 @@ def calculate_math_formula(expression: str) -> ToolResult:
         )
 
     clean_expr = expression.strip()
+    if len(clean_expr) > 512:
+        return ToolResult(
+            success=False,
+            data="Math expression must be 512 characters or fewer.",
+            error="ValidationError"
+        )
 
     # Self-Correction Diagnoser 1: Caret '^' used instead of '**'
     if "^" in clean_expr:
@@ -343,8 +355,7 @@ def calculate_math_formula(expression: str) -> ToolResult:
             error="SyntaxError"
         )
 
-    # Safe math evaluation namespace
-    safe_namespace = {
+    functions = {
         "sqrt": math.sqrt,
         "sin": math.sin,
         "cos": math.cos,
@@ -360,10 +371,65 @@ def calculate_math_formula(expression: str) -> ToolResult:
         "max": max,
         "min": min
     }
+    constants = {"pi": math.pi, "e": math.e}
+    binary_operations = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.FloorDiv: operator.floordiv,
+        ast.Mod: operator.mod,
+        ast.Pow: operator.pow,
+    }
 
     try:
-        # Evaluate safely without builtins
-        val = eval(clean_expr, {"__builtins__": None}, safe_namespace)
+        expression_tree = ast.parse(clean_expr, mode="eval")
+
+        def evaluate(node):
+            if isinstance(node, ast.Expression):
+                return evaluate(node.body)
+            if isinstance(node, ast.Constant):
+                if type(node.value) not in (int, float):
+                    raise _MathExpressionError("Only numeric values are allowed.")
+                value = node.value
+            elif isinstance(node, ast.Name):
+                if node.id not in constants:
+                    raise _MathExpressionError(f"Unknown value '{node.id}'.")
+                value = constants[node.id]
+            elif isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                operand = evaluate(node.operand)
+                value = operand if isinstance(node.op, ast.UAdd) else -operand
+            elif isinstance(node, ast.BinOp):
+                operation = binary_operations.get(type(node.op))
+                if operation is None:
+                    raise _MathExpressionError("That operator is not supported.")
+                left = evaluate(node.left)
+                right = evaluate(node.right)
+                if isinstance(node.op, ast.Pow) and abs(right) > 1000:
+                    raise _MathExpressionError("Exponent magnitude must not exceed 1000.")
+                value = operation(left, right)
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                function = functions.get(node.func.id)
+                if function is None:
+                    raise _MathExpressionError(f"Function '{node.func.id}' is not supported.")
+                if node.keywords:
+                    raise _MathExpressionError("Named function arguments are not supported.")
+                arguments = [evaluate(argument) for argument in node.args]
+                if node.func.id == "pow" and len(arguments) != 2:
+                    raise _MathExpressionError("pow() requires exactly two arguments.")
+                value = function(*arguments)
+            else:
+                raise _MathExpressionError("Only numeric arithmetic and supported math functions are allowed.")
+
+            if type(value) not in (int, float):
+                raise _MathExpressionError("The expression must produce a real number.")
+            if isinstance(value, int) and value.bit_length() > 4096:
+                raise _MathExpressionError("The result is too large.")
+            if isinstance(value, float) and not math.isfinite(value):
+                raise _MathExpressionError("The result is not finite.")
+            return value
+
+        val = evaluate(expression_tree)
         
         # Round floating point noise if close to integer
         if isinstance(val, float):
@@ -373,6 +439,12 @@ def calculate_math_formula(expression: str) -> ToolResult:
                 
         return ToolResult(success=True, data=val)
         
+    except _MathExpressionError as exc:
+        return ToolResult(
+            success=False,
+            data=f"Invalid math expression: {exc}",
+            error="ValidationError"
+        )
     except ZeroDivisionError:
         return ToolResult(
             success=False,
@@ -489,21 +561,47 @@ def generate_quiz(topic: str, num_questions: int = 3, difficulty: str = "medium"
     Returns:
         ToolResult with list of structured MCQs containing question, options, correct_answer, and explanation.
     """
-    if not topic or not topic.strip():
+    if not isinstance(topic, str) or not topic.strip():
         return ToolResult(success=False, data="Topic name cannot be empty.", error="EmptyTopicError")
 
-    if not isinstance(num_questions, int) or num_questions < 1 or num_questions > 5:
+    if (not isinstance(num_questions, int) or isinstance(num_questions, bool)
+            or num_questions < 1 or num_questions > 5):
         return ToolResult(
             success=False,
             data="num_questions must be an integer between 1 and 5.",
             error="ValidationError"
         )
+    if len(topic) > 200:
+        return ToolResult(
+            success=False,
+            data="Topic name must be 200 characters or fewer.",
+            error="ValidationError"
+        )
 
-    clean_topic = topic.lower().strip()
+    topic_words = set(re.findall(r"[a-z0-9]+", topic.lower()))
+    if not topic_words:
+        return ToolResult(
+            success=False,
+            data="Topic must include letters or numbers.",
+            error="ValidationError"
+        )
+    if not isinstance(difficulty, str) or difficulty not in {"easy", "medium", "hard"}:
+        return ToolResult(
+            success=False,
+            data="difficulty must be 'easy', 'medium', or 'hard'.",
+            error="ValidationError"
+        )
     
     # Check pre-curated question bank
     for key, q_list in QUIZ_DATABASE.items():
-        if key in clean_topic or clean_topic in key:
+        key_words = set(re.findall(r"[a-z0-9]+", key))
+        if key_words.issubset(topic_words) or topic_words.issubset(key_words):
+            if num_questions > len(q_list):
+                return ToolResult(
+                    success=False,
+                    data=f"Only {len(q_list)} curated questions are available for {key}.",
+                    error="InsufficientQuestionsError"
+                )
             selected = q_list[:num_questions]
             return ToolResult(success=True, data={
                 "topic": topic,
@@ -512,40 +610,14 @@ def generate_quiz(topic: str, num_questions: int = 3, difficulty: str = "medium"
                 "questions": selected
             })
 
-    # Procedural educational quiz generator for any generic topic
-    procedural_questions = [
-        {
-            "id": 1,
-            "question": f"Which of the following best defines the primary principle of {topic}?",
-            "options": [
-                f"A) A foundational concept governing {topic}",
-                "B) An unrelated phenomenon in astronomy",
-                "C) A historical event from antiquity",
-                "D) None of the above"
-            ],
-            "correct_answer": "A",
-            "explanation": f"Option A reflects the core definition of {topic}."
-        },
-        {
-            "id": 2,
-            "question": f"What is a standard application or consequence of {topic}?",
-            "options": [
-                "A) It has no practical applications",
-                f"B) It is used to model, analyze, and solve problems in {topic}",
-                "C) It contradicts established scientific methods",
-                "D) It only applies at absolute zero temperature"
-            ],
-            "correct_answer": "B",
-            "explanation": f"{topic} provides theoretical and practical models for analysis."
-        }
-    ][:num_questions]
-
-    return ToolResult(success=True, data={
-        "topic": topic,
-        "difficulty": difficulty,
-        "question_count": len(procedural_questions),
-        "questions": procedural_questions
-    })
+    return ToolResult(
+        success=False,
+        data=(
+            f"No curated quiz is available for '{topic}'. "
+            f"Available topics: {', '.join(QUIZ_DATABASE)}."
+        ),
+        error="NotFoundError"
+    )
 
 
 # =========================================================================
@@ -641,7 +713,7 @@ TOOL_REGISTRY = {
     },
     "generate_quiz": {
         "func": generate_quiz,
-        "description": "Generates MCQs only when the student explicitly asks for a quiz, test, practice questions, or MCQs. Do NOT call this tool for ordinary explanations, definitions, or homework answers unless quiz questions are requested.",
+        "description": "Returns curated MCQs for supported topics. Reports unavailable topics or question counts instead of creating generic placeholder questions. Call only when the student explicitly requests a quiz, test, or practice questions.",
         "parameters": {
             "topic": "string (quiz topic)",
             "num_questions": "integer (1 to 5)",

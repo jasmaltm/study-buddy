@@ -4,7 +4,6 @@ Ensures safe, bounded, transparent, and user-confirmed tool execution.
 """
 
 import os
-import time
 import logging
 from typing import Dict, Any, Callable, Optional
 
@@ -36,6 +35,12 @@ class AuditLogger:
         formatted = f"{step_prefix}[{phase.upper()}] {message}"
         self.logger.info(formatted)
         print(f"  --> {formatted}")
+
+    def close(self):
+        for handler in list(self.logger.handlers):
+            self.logger.removeHandler(handler)
+            handler.flush()
+            handler.close()
 
 
 class SafetyGuard:
@@ -94,8 +99,8 @@ class SafetyGuard:
         print("=" * 60)
         
         try:
-            choice = input("  Do you authorize this action? [Y/n]: ").strip().lower()
-            approved = choice in ["y", "yes", ""]
+            choice = input("  Do you authorize this action? [y/N]: ").strip().lower()
+            approved = choice in ["y", "yes"]
         except (EOFError, KeyboardInterrupt):
             approved = False
 

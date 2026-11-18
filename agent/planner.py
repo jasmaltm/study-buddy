@@ -87,12 +87,19 @@ class ExecutionPlan:
     def get_progress_summary(self) -> Dict[str, Any]:
         total = len(self.steps)
         completed = sum(1 for s in self.steps if s.status == "COMPLETED" or s.status == "COMPLETED (Recovered)")
-        pct = round((completed / total) * 100) if total > 0 else 0
+        resolved = sum(
+            1
+            for step in self.steps
+            if step.status in ("COMPLETED", "COMPLETED (Recovered)")
+            or step.status in ("FAILED (Fallback used)", "SKIPPED (Fallback used)")
+        )
+        pct = round((resolved / total) * 100) if total > 0 else 0
         active_step_desc = self.steps[self.current_step_index].description if self.current_step_index < total else "All steps finished"
         
         return {
             "total_steps": total,
             "completed_steps": completed,
+            "resolved_steps": resolved,
             "percentage": pct,
             "current_step_index": self.current_step_index + 1,
             "active_step_description": active_step_desc

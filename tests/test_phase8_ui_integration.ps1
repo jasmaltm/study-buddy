@@ -34,7 +34,10 @@ $requiredUIComponents = @(
     } },
     @{ Name = "Pillar 3: Self-Correction Demo Trigger"; Check = { $htmlContent.Contains("error_recovery") } },
     @{ Name = "Pillar 4: Memory Dashboard Drawer"; Check = { $htmlContent.Contains("memory-drawer") } },
-    @{ Name = "Pillar 5: Pre-Action Plan Banner"; Check = { $htmlContent.Contains("plan-banner") } },
+    @{ Name = "Pillar 5: Pre-Action Plan"; Check = {
+        $htmlContent.Contains("plan-status-badge") -and
+        $htmlContent.Contains("plan-steps-container")
+    } },
     @{ Name = "Pillar 6: Safety Modal (HITL Asks You First)"; Check = { $htmlContent.Contains("safety-modal") } },
     @{ Name = "Pillar 6: Audit Log Stream"; Check = { $htmlContent.Contains("audit-log-stream") } },
     @{ Name = "Pillar 7: Dual-Tier Engine Switcher"; Check = { $htmlContent.Contains("toggle-engine-btn") } }
@@ -64,7 +67,12 @@ if ($masterOutput -match "ALL 7 PILLARS VERIFIED AND PASSED SUCCESSFULLY!") {
 # Verify UI Launcher Script
 $launcherPath = "start_ui.ps1"
 if (Test-Path $launcherPath) {
-    Write-Host "  [PASSED] UI Launcher present: $launcherPath (Executes Start-Process index.html)" -ForegroundColor Green
+    $launcherContent = Get-Content -Path $launcherPath -Raw
+    if ($launcherContent.Contains("api_server.py") -and $launcherContent.Contains("/api/health")) {
+        Write-Host "  [PASSED] UI Launcher starts the API server and checks its health." -ForegroundColor Green
+    } else {
+        throw "UI launcher does not start and verify the local API server."
+    }
 } else {
     throw "start_ui.ps1 missing"
 }

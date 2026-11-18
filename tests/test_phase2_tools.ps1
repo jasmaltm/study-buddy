@@ -198,7 +198,7 @@ if (-not $t3b.Success -and $t3b.Error -eq "ValidationError") {
 # -------------------------------------------------------------------------
 Write-Host "`n[Task 2.4] Executing Tool 4: save_study_notes..." -ForegroundColor Yellow
 
-$testNotesDir = "storage/notes_phase2_test"
+$testNotesDir = Join-Path ([System.IO.Path]::GetTempPath()) "study-buddy-notes-$([guid]::NewGuid().ToString('N'))"
 
 function Invoke-NotesSaver([string]$Title, [string]$Content, [string[]]$Tags, [string]$Dir) {
     if ([string]::IsNullOrWhiteSpace($Title)) {
@@ -233,12 +233,14 @@ $t4 = Invoke-NotesSaver -Title "Kinematics_Falling_Distance" -Content $noteConte
 
 if ($t4.Success -and (Test-Path $t4.Data.SavedFile)) {
     $readBack = Get-Content -Path $t4.Data.SavedFile -Raw
-    if ($readBack.Contains("122.5 meters") -and $readBack.Contains("Tags: physics, exam_prep")) {
+    $validNote = $readBack.Contains("122.5 meters") -and $readBack.Contains("**Tags:** physics, exam_prep")
+    Remove-Item -Path $testNotesDir -Recurse -Force
+    if ($validNote) {
         Write-Host "  [PASSED] 2.4: Saved structured markdown note with frontmatter metadata." -ForegroundColor Green
         Write-Host "         File created: $($t4.Data.SavedFile) ($($t4.Data.BytesWritten) bytes)" -ForegroundColor DarkGray
+    } else {
+        throw "Task 2.4 saved note did not contain the expected content."
     }
-    # Clean up test directory
-    Remove-Item -Path $testNotesDir -Recurse -Force
 } else { throw "Task 2.4 Failed" }
 
 

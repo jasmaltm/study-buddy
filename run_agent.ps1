@@ -201,7 +201,9 @@ if (Test-Path $memoryFile) {
         })
         $memObj | ConvertTo-Json -Depth 6 | Set-Content -Path $memoryFile -Encoding UTF8
         Write-Host "`n[Pillar 4 Memory] Updated persistent storage ($memoryFile) with task completion." -ForegroundColor DarkCyan
-    } catch { }
+    } catch {
+        Write-Warning "Could not update persistent memory '$memoryFile': $($_.Exception.Message)"
+    }
 }
 
 Write-Host "`n==========================================================================" -ForegroundColor Cyan

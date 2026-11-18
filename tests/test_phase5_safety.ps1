@@ -13,8 +13,7 @@ Write-Host "====================================================================
 Write-Host "   PHASE 5: VERIFICATION OF SAFETY CONTROLS (PILLAR 6)" -ForegroundColor Cyan
 Write-Host "==========================================================================" -ForegroundColor Cyan
 
-$testLogPath = "logs/test_phase5_audit.log"
-if (Test-Path $testLogPath) { Remove-Item $testLogPath -Force }
+$testLogPath = Join-Path ([System.IO.Path]::GetTempPath()) "study-buddy-audit-$([guid]::NewGuid().ToString('N')).log"
 
 # -------------------------------------------------------------------------
 # TASK 5.1: Safety Gate & Human-in-the-Loop ("Asks you first")
@@ -105,6 +104,8 @@ if (Test-Path $testLogPath) {
         Write-Host "  [PASSED] 5.3: Structured audit trail recorded to disk ($testLogPath)." -ForegroundColor Green
         Write-Host "`nSample Audit Log Lines:" -ForegroundColor DarkGray
         Get-Content $testLogPath | Select-Object -First 3 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkCyan }
+    } else {
+        throw "Task 5.3 audit log did not contain the expected entries."
     }
     Remove-Item $testLogPath -Force
 } else { throw "Task 5.3 Failed" }

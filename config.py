@@ -12,14 +12,16 @@ if _use_fake_llm not in {"true", "false"}:
     raise ValueError("USE_FAKE_LLM must be 'true' or 'false'.")
 USE_FAKE_LLM = _use_fake_llm == "true"
 
-# Real LLM Provider ('gemini', 'openai', or 'ollama')
-REAL_LLM_PROVIDER = os.environ.get("REAL_LLM_PROVIDER", "gemini").strip().lower()
-if REAL_LLM_PROVIDER not in {"gemini", "openai", "ollama"}:
-    raise ValueError("REAL_LLM_PROVIDER must be 'gemini', 'openai', or 'ollama'.")
+# Real LLM Provider
+REAL_LLM_PROVIDER = os.environ.get("REAL_LLM_PROVIDER", "ollama").strip().lower()
+if REAL_LLM_PROVIDER not in {"gemini", "openai", "ollama", "groq"}:
+    raise ValueError("REAL_LLM_PROVIDER must be 'gemini', 'openai', 'ollama', or 'groq'.")
 
 # API Keys
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b").strip()
 OLLAMA_BASE_URL = os.environ.get(
     "OLLAMA_BASE_URL", "http://localhost:11434"
 ).strip().rstrip("/")

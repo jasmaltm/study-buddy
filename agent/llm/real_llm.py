@@ -131,7 +131,8 @@ class OpenAILLM(BaseLLM):
             data=json.dumps(payload).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
+                "Authorization": f"Bearer {self.api_key}",
+                "User-Agent": "Mozilla/5.0 AI-Study-Buddy/1.0"
             }
         )
 

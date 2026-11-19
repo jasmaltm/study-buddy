@@ -26,7 +26,14 @@ def get_llm():
         print("[LLM Engine] Using deterministic FakeLLM (Pillar 7: Fake LLM first).")
         return FakeLLM()
     
-    if config.REAL_LLM_PROVIDER == "ollama":
+    if config.REAL_LLM_PROVIDER == "groq":
+        print("[LLM Engine] Using Groq Cloud.")
+        return OpenAILLM(
+            api_key=config.GROQ_API_KEY,
+            model=config.GROQ_MODEL,
+            base_url="https://api.groq.com/openai/v1",
+        )
+    elif config.REAL_LLM_PROVIDER == "ollama":
         print("[LLM Engine] Using Ollama.")
         return OllamaLLM(
             model=config.OLLAMA_MODEL,
